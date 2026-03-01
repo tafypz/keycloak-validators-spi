@@ -21,7 +21,7 @@ class WebhookNotifier implements Notifier {
 
   @Override
   public void send(String jsonPayload) throws Exception {
-    log.debugf("WebhookNotifier: sending notification to %s with %s", url, jsonPayload);
+    log.infof("WebhookNotifier: sending notification to %s with %s", url, jsonPayload);
     HttpRequest request =
         HttpRequest.newBuilder()
             .uri(URI.create(url))
