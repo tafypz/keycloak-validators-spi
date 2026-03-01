@@ -171,6 +171,17 @@
       <artifactId>sts</artifactId>
       <version>${aws.sdk.version}</version>
     </dependency>
+    <!-- Required for AWS SSO profiles (local development) -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>sso</artifactId>
+      <version>${aws.sdk.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>ssooidc</artifactId>
+      <version>${aws.sdk.version}</version>
+    </dependency>
 
     <!-- testing -->
     <dependency>

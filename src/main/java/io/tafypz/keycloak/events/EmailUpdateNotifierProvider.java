@@ -1,6 +1,8 @@
 package io.tafypz.keycloak.events;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.jboss.logging.Logger;
 import org.keycloak.events.Event;
 import org.keycloak.events.EventListenerProvider;
@@ -17,6 +19,17 @@ class EmailUpdateNotifierProvider implements EventListenerProvider {
 
   private static final Logger log = Logger.getLogger(EmailUpdateNotifierProvider.class);
 
+  // Maps Keycloak event detail key → JSON payload field name.
+  // Only fields present here are watched; any other profile change is ignored.
+  // Note: Keycloak uses the user profile attribute name as the detail key (e.g. "date-of-birth").
+  // Verify against actual UPDATE_PROFILE event details if adding new fields.
+  private static final Map<String, String> WATCHED_FIELDS =
+      Map.of(
+          "first_name", "firstName",
+          "last_name", "lastName",
+          "date-of-birth", "dateOfBirth",
+          "phoneNumber", "phoneNumber");
+
   private final KeycloakSession session;
   private final EmailUpdateNotifierFactory factory;
 
@@ -31,6 +44,8 @@ class EmailUpdateNotifierProvider implements EventListenerProvider {
 
     if (EventType.UPDATE_EMAIL.equals(event.getType())) {
       handleUpdateEmail(event);
+    } else if (EventType.UPDATE_PROFILE.equals(event.getType())) {
+      handleUpdateProfile(event);
     }
   }
 
@@ -46,7 +61,32 @@ class EmailUpdateNotifierProvider implements EventListenerProvider {
     UserModel user = session.users().getUserById(realm, userId);
     if (user == null) return;
 
-    sendSafely(buildPayload(userId, user.getEmail(), previousEmail, realm.getId(), "user"));
+    sendSafely(buildEmailPayload(userId, user.getEmail(), previousEmail, realm.getId(), "user"));
+  }
+
+  private void handleUpdateProfile(Event event) {
+    Map<String, String> details = event.getDetails();
+    if (details == null) return;
+
+    // Build a changes map containing only the watched fields that actually changed.
+    Map<String, ProfileUpdatedPayload.FieldChange> changes = new LinkedHashMap<>();
+    for (Map.Entry<String, String> watched : WATCHED_FIELDS.entrySet()) {
+      String detailKey = watched.getKey();
+      String payloadKey = watched.getValue();
+      String updated = details.get("updated_" + detailKey);
+      if (updated != null) {
+        changes.put(payloadKey,
+            new ProfileUpdatedPayload.FieldChange(details.get("previous_" + detailKey), updated));
+      }
+    }
+
+    // Skip if none of the watched fields changed (e.g. user updated an unrelated attribute).
+    if (changes.isEmpty()) return;
+
+    RealmModel realm = session.realms().getRealm(event.getRealmId());
+    if (realm == null) return;
+
+    sendSafely(buildProfilePayload(event.getUserId(), changes, realm.getId(), "user"));
   }
 
   @Override
@@ -71,7 +111,7 @@ class EmailUpdateNotifierProvider implements EventListenerProvider {
     if (user == null) return;
 
     // No previousEmail available for admin-initiated changes
-    sendSafely(buildPayload(userId, user.getEmail(), null, realm.getId(), "admin"));
+    sendSafely(buildEmailPayload(userId, user.getEmail(), null, realm.getId(), "admin"));
   }
 
   private void sendSafely(String payload) {
@@ -82,18 +122,25 @@ class EmailUpdateNotifierProvider implements EventListenerProvider {
     }
   }
 
-  private String buildPayload(
+  private String buildEmailPayload(
       String userId, String email, String previousEmail, String realmId, String source) {
     try {
-      var node = JsonSerialization.createObjectNode();
-      node.put("event", "email.verified");
-      node.put("userId", userId);
-      node.put("email", email);
-      if (previousEmail != null) node.put("previousEmail", previousEmail);
-      node.put("realmId", realmId);
-      node.put("source", source);
-      node.put("timestamp", Instant.now().toString());
-      return JsonSerialization.writeValueAsString(node);
+      return JsonSerialization.writeValueAsString(
+          new EmailUpdatedPayload(
+              "email.verified", userId, email, previousEmail, realmId, source,
+              Instant.now().toString()));
+    } catch (Exception e) {
+      throw new IllegalStateException("Failed to serialize notification payload", e);
+    }
+  }
+
+  private String buildProfilePayload(
+      String userId, Map<String, ProfileUpdatedPayload.FieldChange> changes,
+      String realmId, String source) {
+    try {
+      return JsonSerialization.writeValueAsString(
+          new ProfileUpdatedPayload(
+              "profile.updated", userId, realmId, source, Instant.now().toString(), changes));
     } catch (Exception e) {
       throw new IllegalStateException("Failed to serialize notification payload", e);
     }

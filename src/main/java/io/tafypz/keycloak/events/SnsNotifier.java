@@ -31,6 +31,7 @@ class SnsNotifier implements Notifier {
 
   @Override
   public void send(String jsonPayload) throws Exception {
+    log.debugf("SnsNotifier: sending notification to %s with %s", topicArn, jsonPayload);
     try {
       getClient().publish(r -> r.topicArn(topicArn).message(jsonPayload));
       log.debugf("EmailUpdateNotifier: SNS message published to %s", topicArn);
