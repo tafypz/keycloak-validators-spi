@@ -20,9 +20,10 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <main.java.package>io.tafypz</main.java.package>
     <junit.version>4.13.2</junit.version>
-    <keycloak.version>26.5.3</keycloak.version>
+    <keycloak.version>26.5.4</keycloak.version>
     <lombok.version>1.18.38</lombok.version>
     <auto-service.version>1.1.1</auto-service.version>
+    <aws.sdk.version>2.29.0</aws.sdk.version>
     <ossrh.url>https://ossrh-staging-api.central.sonatype.com</ossrh.url>
   </properties>
 
@@ -75,6 +76,39 @@
         <artifactId>fmt-maven-plugin</artifactId>
         <version>2.25</version>
       </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.6.0</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+              <relocations>
+                <relocation>
+                  <pattern>software.amazon</pattern>
+                  <shadedPattern>io.tafypz.shaded.software.amazon</shadedPattern>
+                </relocation>
+              </relocations>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
   
@@ -123,6 +157,19 @@
       <artifactId>jakarta.validation-api</artifactId>
       <version>3.0.2</version>
       <scope>provided</scope>
+    </dependency>
+
+    <!-- AWS SDK v2 SNS — bundled via shade plugin -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>sns</artifactId>
+      <version>${aws.sdk.version}</version>
+    </dependency>
+    <!-- Required for IRSA (AssumeRoleWithWebIdentity) on EKS -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>sts</artifactId>
+      <version>${aws.sdk.version}</version>
     </dependency>
 
     <!-- testing -->
