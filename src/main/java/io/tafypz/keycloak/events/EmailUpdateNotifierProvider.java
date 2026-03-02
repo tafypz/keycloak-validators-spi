@@ -19,15 +19,20 @@ class EmailUpdateNotifierProvider implements EventListenerProvider {
 
   private static final Logger log = Logger.getLogger(EmailUpdateNotifierProvider.class);
 
+  // Keycloak user attribute names — must match the user profile schema.
+  // "dob" confirmed from UPDATE_PROFILE event details.
+  // "phoneNumber" key unverified — adjust if phone notifications don't fire.
+  private static final String ATTR_PHONE = "phoneNumber";
+  private static final String ATTR_DOB = "dob";
+
   // Maps Keycloak event detail key → JSON payload field name.
-  // Only fields present here are watched; any other profile change is ignored.
-  // Note: Keycloak uses the user profile attribute name as the detail key (e.g. "date-of-birth").
-  // Verify against actual UPDATE_PROFILE event details if adding new fields.
+  // Only fields listed here trigger a profile.updated notification.
+  // Keycloak uses the user profile attribute name as the detail key (e.g. "dob").
   private static final Map<String, String> WATCHED_FIELDS =
       Map.of(
           "first_name", "firstName",
           "last_name", "lastName",
-          "date-of-birth", "dateOfBirth",
+          "dob", "dob",
           "phoneNumber", "phoneNumber");
 
   private final KeycloakSession session;
@@ -42,11 +47,37 @@ class EmailUpdateNotifierProvider implements EventListenerProvider {
   public void onEvent(Event event) {
     if (factory.getNotifier() == null) return;
 
-    if (EventType.UPDATE_EMAIL.equals(event.getType())) {
+    if (EventType.REGISTER.equals(event.getType())) {
+      handleRegister(event);
+    } else if (EventType.VERIFY_EMAIL.equals(event.getType())) {
+      handleVerifyEmail(event);
+    } else if (EventType.UPDATE_EMAIL.equals(event.getType())) {
       handleUpdateEmail(event);
     } else if (EventType.UPDATE_PROFILE.equals(event.getType())) {
       handleUpdateProfile(event);
     }
+  }
+
+  private void handleRegister(Event event) {
+    RealmModel realm = session.realms().getRealm(event.getRealmId());
+    if (realm == null) return;
+    UserModel user = session.users().getUserById(realm, event.getUserId());
+    if (user == null) return;
+
+    sendSafely(buildRegisteredPayload(event.getUserId(), user, realm.getId()));
+  }
+
+  private void handleVerifyEmail(Event event) {
+    // In the registration flow: REGISTER → SEND_VERIFY_EMAIL → VERIFY_EMAIL.
+    // In the email-update flow: UPDATE_EMAIL is the terminal event (no VERIFY_EMAIL).
+    // So VERIFY_EMAIL always means the user has completed registration verification.
+    RealmModel realm = session.realms().getRealm(event.getRealmId());
+    if (realm == null) return;
+    UserModel user = session.users().getUserById(realm, event.getUserId());
+    if (user == null) return;
+
+    sendSafely(buildEmailPayload(
+        "user.email.verified", event.getUserId(), user.getEmail(), null, realm.getId(), "user"));
   }
 
   private void handleUpdateEmail(Event event) {
@@ -61,7 +92,8 @@ class EmailUpdateNotifierProvider implements EventListenerProvider {
     UserModel user = session.users().getUserById(realm, userId);
     if (user == null) return;
 
-    sendSafely(buildEmailPayload(userId, user.getEmail(), previousEmail, realm.getId(), "user"));
+    sendSafely(buildEmailPayload(
+        "email.verified", userId, user.getEmail(), previousEmail, realm.getId(), "user"));
   }
 
   private void handleUpdateProfile(Event event) {
@@ -111,7 +143,8 @@ class EmailUpdateNotifierProvider implements EventListenerProvider {
     if (user == null) return;
 
     // No previousEmail available for admin-initiated changes
-    sendSafely(buildEmailPayload(userId, user.getEmail(), null, realm.getId(), "admin"));
+    sendSafely(buildEmailPayload(
+        "email.verified", userId, user.getEmail(), null, realm.getId(), "admin"));
   }
 
   private void sendSafely(String payload) {
@@ -122,12 +155,29 @@ class EmailUpdateNotifierProvider implements EventListenerProvider {
     }
   }
 
+  private String buildRegisteredPayload(String userId, UserModel user, String realmId) {
+    try {
+      var profile = new UserRegisteredPayload.Profile(
+          user.getFirstName(),
+          user.getLastName(),
+          user.getFirstAttribute(ATTR_PHONE),
+          user.getFirstAttribute(ATTR_DOB));
+      return JsonSerialization.writeValueAsString(
+          new UserRegisteredPayload(
+              "user.registered", userId, user.getEmail(), user.isEmailVerified(),
+              realmId, "user", Instant.now().toString(), profile));
+    } catch (Exception e) {
+      throw new IllegalStateException("Failed to serialize notification payload", e);
+    }
+  }
+
   private String buildEmailPayload(
-      String userId, String email, String previousEmail, String realmId, String source) {
+      String eventName, String userId, String email, String previousEmail,
+      String realmId, String source) {
     try {
       return JsonSerialization.writeValueAsString(
           new EmailUpdatedPayload(
-              "email.verified", userId, email, previousEmail, realmId, source,
+              eventName, userId, email, previousEmail, realmId, source,
               Instant.now().toString()));
     } catch (Exception e) {
       throw new IllegalStateException("Failed to serialize notification payload", e);
