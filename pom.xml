@@ -23,7 +23,7 @@
     <keycloak.version>26.5.4</keycloak.version>
     <lombok.version>1.18.38</lombok.version>
     <auto-service.version>1.1.1</auto-service.version>
-    <aws.sdk.version>2.29.0</aws.sdk.version>
+    <aws.sdk.version>2.42.4</aws.sdk.version>
     <ossrh.url>https://ossrh-staging-api.central.sonatype.com</ossrh.url>
   </properties>
 
@@ -95,8 +95,30 @@
                     <exclude>META-INF/*.RSA</exclude>
                   </excludes>
                 </filter>
+                <!-- Exclude libraries already provided by Keycloak at runtime -->
+                <filter>
+                  <artifact>org.apache.httpcomponents:*</artifact>
+                  <excludes><exclude>**</exclude></excludes>
+                </filter>
+                <filter>
+                  <artifact>commons-codec:commons-codec</artifact>
+                  <excludes><exclude>**</exclude></excludes>
+                </filter>
+                <filter>
+                  <artifact>commons-logging:commons-logging</artifact>
+                  <excludes><exclude>**</exclude></excludes>
+                </filter>
+                <filter>
+                  <artifact>org.slf4j:*</artifact>
+                  <excludes><exclude>**</exclude></excludes>
+                </filter>
+                <filter>
+                  <artifact>org.reactivestreams:reactive-streams</artifact>
+                  <excludes><exclude>**</exclude></excludes>
+                </filter>
               </filters>
               <relocations>
+                <!-- Only the AWS SDK needs relocation — everything else is provided by Keycloak -->
                 <relocation>
                   <pattern>software.amazon</pattern>
                   <shadedPattern>io.tafypz.shaded.software.amazon</shadedPattern>
@@ -160,10 +182,22 @@
     </dependency>
 
     <!-- AWS SDK v2 SNS — bundled via shade plugin -->
+    <!-- netty-nio-client excluded: we use SnsClient (sync) which uses Apache HTTP client;
+         bundling Netty would conflict with Keycloak's own Netty/Vert.x -->
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>sns</artifactId>
       <version>${aws.sdk.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>netty-nio-client</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>io.netty</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <!-- Required for IRSA (AssumeRoleWithWebIdentity) on EKS -->
     <dependency>
