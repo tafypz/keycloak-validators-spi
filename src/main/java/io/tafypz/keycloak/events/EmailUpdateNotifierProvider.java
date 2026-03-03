@@ -47,14 +47,13 @@ class EmailUpdateNotifierProvider implements EventListenerProvider {
   public void onEvent(Event event) {
     if (factory.getNotifier() == null) return;
 
-    if (EventType.REGISTER.equals(event.getType())) {
-      handleRegister(event);
-    } else if (EventType.VERIFY_EMAIL.equals(event.getType())) {
-      handleVerifyEmail(event);
-    } else if (EventType.UPDATE_EMAIL.equals(event.getType())) {
-      handleUpdateEmail(event);
-    } else if (EventType.UPDATE_PROFILE.equals(event.getType())) {
-      handleUpdateProfile(event);
+    switch (event.getType()) {
+      case REGISTER -> handleRegister(event);
+      case SEND_VERIFY_EMAIL -> handleSendVerifyEmail(event);
+      case VERIFY_EMAIL -> handleVerifyEmail(event);
+      case UPDATE_EMAIL -> handleUpdateEmail(event);
+      case UPDATE_PROFILE -> handleUpdateProfile(event);
+      default -> { /* ignored */ }
     }
   }
 
@@ -65,6 +64,23 @@ class EmailUpdateNotifierProvider implements EventListenerProvider {
     if (user == null) return;
 
     sendSafely(buildRegisteredPayload(event.getUserId(), user, realm.getId()));
+  }
+
+  private void handleSendVerifyEmail(Event event) {
+    // Fires in two flows:
+    //   Registration:   REGISTER → SEND_VERIFY_EMAIL → VERIFY_EMAIL
+    //   Email update:   UPDATE_PROFILE → SEND_VERIFY_EMAIL → UPDATE_EMAIL
+    // The email being verified is in the event details (not yet committed to the user record
+    // in the email-update flow), so we read it from details rather than the user model.
+    Map<String, String> details = event.getDetails();
+    String email = details != null ? details.get("email") : null;
+    if (email == null) return;
+
+    RealmModel realm = session.realms().getRealm(event.getRealmId());
+    if (realm == null) return;
+
+    sendSafely(buildEmailPayload(
+        "email.verify.requested", event.getUserId(), email, null, realm.getId(), "user"));
   }
 
   private void handleVerifyEmail(Event event) {
