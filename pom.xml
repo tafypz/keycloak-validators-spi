@@ -116,6 +116,15 @@
                   <artifact>org.reactivestreams:reactive-streams</artifact>
                   <excludes><exclude>**</exclude></excludes>
                 </filter>
+                <!-- Never bundle Netty: Keycloak/Quarkus ships its own and an older copy breaks Vert.x -->
+                <filter>
+                  <artifact>io.netty:*</artifact>
+                  <excludes><exclude>**</exclude></excludes>
+                </filter>
+                <filter>
+                  <artifact>software.amazon.awssdk:netty-nio-client</artifact>
+                  <excludes><exclude>**</exclude></excludes>
+                </filter>
               </filters>
               <relocations>
                 <!-- Only the AWS SDK needs relocation — everything else is provided by Keycloak -->
@@ -182,8 +191,10 @@
     </dependency>
 
     <!-- AWS SDK v2 SNS — bundled via shade plugin -->
-    <!-- netty-nio-client excluded: we use SnsClient (sync) which uses Apache HTTP client;
-         bundling Netty would conflict with Keycloak's own Netty/Vert.x -->
+    <!-- netty-nio-client excluded from EVERY awssdk module: we use SnsClient (sync) which uses
+         Apache HTTP client. Bundling Netty (unrelocated) shadows Keycloak's own Netty and breaks
+         Vert.x HTTP/2 with NoSuchMethodError. Exclusions are per-dependency in Maven, so each
+         awssdk module must repeat them; the shade filter below is a second line of defense. -->
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>sns</artifactId>
@@ -204,17 +215,47 @@
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>sts</artifactId>
       <version>${aws.sdk.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>netty-nio-client</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>io.netty</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <!-- Required for AWS SSO profiles (local development) -->
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>sso</artifactId>
       <version>${aws.sdk.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>netty-nio-client</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>io.netty</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>ssooidc</artifactId>
       <version>${aws.sdk.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>netty-nio-client</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>io.netty</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
 
     <!-- testing -->
